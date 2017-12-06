@@ -1,0 +1,512 @@
+leafletOutput("map")#, width = "100%", height = "100%")
+),
+tabPanel("Shlter Map",
+leafletOutput("map2"))
+,tabPanel("Timeline Charts",
+titlePanel("Homeless People Analysis for City of Los Angeles",
+windowTitle = "Timeline Charts for crime and calls"),
+sidebarLayout(
+sidebarPanel(
+helpText("Summary"),
+selectInput(inputId = "cc",
+label = "Choose your focus",
+choices = list ("Crime","311 Calls"
+),
+selected = FALSE),
+uiOutput("crimect"),
+uiOutput("callct")
+)
+,
+mainPanel(
+conditionalPanel("input.cc==='Crime'",plotOutput("crimeplot1")),
+conditionalPanel("input.cc==='Crime'",plotOutput("crimeplot2")),
+conditionalPanel("input.cc==='311 Calls'",plotOutput("callplot1")),
+conditionalPanel("input.cc==='311 Calls'",plotOutput("callplot2"))
+)
+))
+,
+tabPanel("Summary for Homeless People",
+titlePanel("Sheltered and Unsheltered People Distribution"
+),
+sidebarLayout(
+sidebarPanel(
+selectInput(inputId = "us",
+label = "Choose the type of homeless people",
+choices = list("Sheltered people","Unsheltered people"),
+selected = FALSE),
+selectInput(inputId = "usct",
+label = "Choose the tract of homeless people",
+choices = unique(count_tract1$Tract),
+selected = "ALL"),
+selectInput(inputId = "year",label = "Choose the year you focus",
+choices = unique(count_tract1$Year)),
+selected="2017"),
+mainPanel(
+plotOutput(outputId = "usplot")
+))
+)
+)
+server <- function(input, output, session) {
+output$map2=renderLeaflet(
+leaflet(ctmap_LA_sd,width = "100%",height = "100%")%>%
+addProviderTiles(providers$CartoDB.Positron) %>%
+addPolygons(popup = paste("CT:", ctmap_LA_sd$CT10, "<br>",
+"Community:", ctmap_LA_sd$Community_Name, "<br>",
+"Beds:", ctmap_LA_sd$Beds.Available, "<br>",
+"Unsheltered People:", ctmap_LA_sd$Unsheltered.Homeless.People, "<br>",
+"Beds Availability:", ctmap_LA_sd$SOD, "<br>"),
+stroke = TRUE,weight = 0.5,
+color = ~pal2(SOD),
+fillOpacity =0.5) %>%
+addLegend("bottomright",
+pal = pal2,
+values = ~ SOD,
+title = "Shelter Availability",
+opacity =1)
+)
+output$map = renderLeaflet(
+leaflet(ctmap_LA_all_shp,height = "100%",width = "100%")%>%
+addProviderTiles(providers$CartoDB.Positron) %>%
+addPolygons(
+popup = paste("CT:", ctmap_LA_all_shp$CT10, "<br>",
+"Community:", ctmap_LA_all_shp$Community_Name, "<br>",
+"Homelss:", ctmap_LA_all_shp$totPeople, "<br>",
+"Crimes:", ctmap_LA_all_shp$crimenum, "<br>",
+"Calls:",ctmap_LA_all_shp$callnum, "<br>",
+"Shelters:", ctmap_LA_all_shp$shelternum, "<br>"),
+stroke = TRUE,weight = 0.5,
+color = pal(ctmap_LA_all_shp$totPeople),
+fillOpacity = 0.4,
+group = "Heat Map: Homeless People") %>%
+addPolygons(popup = paste("CT:", ctmap_LA_all_shp$CT10, "<br>",
+"Community:", ctmap_LA_all_shp$Community_Name, "<br>",
+"Homelss:", ctmap_LA_all_shp$totPeople, "<br>",
+"Crimes:", ctmap_LA_all_shp$crimenum, "<br>",
+"Calls:",ctmap_LA_all_shp$callnum, "<br>",
+"Shelters:", ctmap_LA_all_shp$shelternum, "<br>"),
+stroke = TRUE,weight = 0.5,
+color = ~pal(ctmap_LA_all_shp$crimenum),
+fillOpacity = 0.4,
+group = "Heat Map: Crimes") %>%
+addPolygons(popup = paste("CT:", ctmap_LA_all_shp$CT10, "<br>",
+"Community:", ctmap_LA_all_shp$Community_Name, "<br>",
+"Homelss:", ctmap_LA_all_shp$totPeople, "<br>",
+"Crimes:", ctmap_LA_all_shp$crimenum, "<br>",
+"Calls:",ctmap_LA_all_shp$callnum, "<br>",
+"Shelters:", ctmap_LA_all_shp$shelternum, "<br>"),
+stroke = TRUE,weight = 0.5,
+highlightOptions = highlightOptions(color = "white", weight = 2, bringToFront = TRUE),
+color = ~pal(ctmap_LA_all_shp$callnum),
+fillOpacity = 0.4,
+group = "Heat Map: Calls") %>%
+addMarkers(data = shelter_LA,
+lng = ~longitude, lat = ~latitude,
+popup = paste(shelter_LA$name, "<br>",
+shelter_LA$url, "<br>",
+shelter_LA$addrln1, "<br>",
+"Hours:", shelter_LA$hours),
+icon = ShelterIcon,
+group = "shelters") %>%
+addLegend("bottomright",
+pal = pal,
+values = ~ ctmap_LA_all_shp$totPeople,
+title = "Number",
+opacity =1) %>%
+addCircleMarkers(data = crime,
+lng = ~longitude, lat = ~latitude,
+popup = crime$ct10,
+radius = 0.5,
+color = c("red"),
+clusterOptions = markerClusterOptions(),
+opacity = 1,
+group = "crimes") %>%
+addCircleMarkers(data = call,
+lng = ~longitude, lat = ~latitude,
+radius = 0.2,
+clusterOptions = markerClusterOptions(),
+group = "calls") %>%
+addLayersControl(
+baseGroups = c("Heat Map: Homeless People", "Heat Map: Crimes", "Heat Map: Calls"),
+overlayGroups = c("shelters", "crimes", "calls"),
+options = layersControlOptions(collapsed = FALSE)) %>%
+hideGroup(c("crimes", "calls"))
+)
+output$crimect=renderUI({
+if(input$cc=="Crime")
+{selectInput("ct","Choose your tract focus", choices=unique(Crimetime$CT10),selected = "ALL")}
+else{selectInput("cct","Choose your tract focus", choices=unique(newcalls$ct10),selected = "ALL")}
+})
+output$crimeplot1=renderPlot(
+crime2 %>%
+filter(CT10 == input$ct) %>%
+ggplot(aes(x = mth_yr)) +
+geom_bar(fill = "indianred",
+alpha = 0.7,
+width = 0.5) +
+scale_y_continuous(expand = c(0,0)) +
+theme(panel.background = element_rect(fill = "white"),
+axis.line = element_line(color = "grey"),
+axis.ticks = element_line(color = "grey"),
+aspect.ratio = 0.5,
+axis.text = element_text(size = 8,
+color = "grey20"),
+axis.title = element_text(size = 11,
+color = "grey20")) +
+labs(x = "Month", y = "Number of Crime",
+title = "Number of Crime by Months")
+)
+output$crimeplot2=renderPlot(
+# day of week; filter by CT
+Crimetime %>%
+filter(CT10 == input$ct) %>%
+ggplot(aes(x = as.factor(Day), y = ..density..,
+group = as.factor(Year),
+color = as.factor(Year))) +
+geom_line(stat = "density") +
+scale_color_discrete(name = "Year") +
+theme(panel.background = element_rect(fill = "transparent",
+color = "lightgrey")) +
+scale_x_discrete(breaks = c(1,2,3,4,5,6,7),
+labels = c("Mon","Tue","Wed",
+"Thur","Fri","Sat","Sun")) +
+labs(x = "Day of Week", y = "Percent of Crime",
+title = "Number of Crime by Day of Week"))
+output$callplot1=renderPlot(
+#### timeline of calls
+# month (filt by tract)
+newcalls %>%
+filter(ct10==input$cct)%>%
+group_by(month)%>%
+summarize(Monthcount=n())%>%
+ggplot(aes(x=month,y= Monthcount)) +
+scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12),
+labels = c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))+
+geom_bar(fill = "#a50026",
+stat = "identity") +
+ylab("Number of Calls")+
+xlab("Month")+
+ggtitle("Timeline of Calls by Month")+
+geom_text(aes(label =Monthcount),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))
+)
+output$callplot2=renderPlot(
+# day of week (filt by ct)
+newcalls %>%
+filter(ct10==input$cct)%>%
+group_by(day.of.week)%>%
+summarize(Dowcount=n())%>%
+ggplot(aes(x =day.of.week, y =Dowcount)) +
+geom_bar(stat = "identity",
+fill="#a50026") +
+scale_x_continuous(breaks = c(1,2,3,4,5,6,7),
+labels = c("Mon","Tue","Wed",
+"Thur","Fri","Sat","Sun"))+
+ylab("Number of Calls")+
+xlab("Day of Week")+
+ggtitle("Timeline of Calls by Day of Week")+
+geom_text(aes(label =Dowcount),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))
+)
+output$usplot=renderPlot(
+if(input$us=="Sheltered people"){
+count_tract1 %>%
+filter(Tract==input$usct)%>%
+filter(If_Shelter=="Shelter")%>%
+filter(Year==input$year)%>%
+group_by(Resident)%>%
+summarize(Count=sum(value))%>%
+ggplot(aes(x=Resident,y=Count,fill=Resident))+
+geom_bar(stat="identity")+
+xlab("Location Type")+
+ylab("Number of People")+
+scale_fill_manual(values=c("#66c2a5","#d96f02","#a6d854"))+
+theme(axis.text = element_text(size=8),
+axis.title = element_text(size=10),
+legend.title=element_text(size=8),
+legend.text=element_text(size=7),
+plot.title = element_text(size=10)) +
+geom_text(aes(label =Count),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))}
+else{
+count_tract1 %>%
+filter(Tract==input$usct)%>%
+filter(If_Shelter=="Unshelter")%>%
+filter(Year==input$year)%>%
+group_by(Resident)%>%
+summarize(Count=sum(value))%>%
+ggplot(aes(x=Resident,y=Count,fill=Resident))+
+geom_bar(stat="identity")+
+xlab("Type")+
+ylab("Number of People")+
+scale_fill_manual(values=c("#e66101","#fdb863","#b8e186","#b2abd2","#5e3c99"))+
+theme(axis.text = element_text(size=8),
+axis.title = element_text(size=10),
+legend.title=element_text(size=8),
+legend.text=element_text(size=7),
+plot.title = element_text(size=10)) +
+geom_text(aes(label =Count),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))}
+)
+}
+shinyApp(ui, server)
+ui <- navbarPage(
+"Homeless People Analysis for City of Los Angeles", id="nav",
+tabPanel("Interactive Map",
+leafletOutput("map")#, width = "100%", height = "100%")
+),
+tabPanel("Shelter Map",
+leafletOutput("map2"))
+,tabPanel("Timeline Charts",
+titlePanel("Homeless People Analysis for City of Los Angeles",
+windowTitle = "Timeline Charts for crime and calls"),
+sidebarLayout(
+sidebarPanel(
+selectInput(inputId = "cc",
+label = "Choose your focus",
+choices = list ("Crime","311 Calls"
+),
+selected = FALSE),
+uiOutput("crimect"),
+uiOutput("callct")
+)
+,
+mainPanel(
+conditionalPanel("input.cc==='Crime'",plotOutput("crimeplot1")),
+conditionalPanel("input.cc==='Crime'",plotOutput("crimeplot2")),
+conditionalPanel("input.cc==='311 Calls'",plotOutput("callplot1")),
+conditionalPanel("input.cc==='311 Calls'",plotOutput("callplot2"))
+)
+))
+,
+tabPanel("Summary for Homeless People",
+titlePanel("Sheltered and Unsheltered People Distribution"
+),
+sidebarLayout(
+sidebarPanel(
+selectInput(inputId = "us",
+label = "Choose the type of homeless people",
+choices = list("Sheltered people","Unsheltered people"),
+selected = FALSE),
+selectInput(inputId = "usct",
+label = "Choose the tract of homeless people",
+choices = unique(count_tract1$Tract),
+selected = "ALL"),
+selectInput(inputId = "year",label = "Choose the year you focus",
+choices = unique(count_tract1$Year)),
+selected="2017"),
+mainPanel(
+plotOutput(outputId = "usplot")
+))
+)
+)
+server <- function(input, output, session) {
+output$map2=renderLeaflet(
+leaflet(ctmap_LA_sd,width = "100%",height = "100%")%>%
+addProviderTiles(providers$CartoDB.Positron) %>%
+addPolygons(popup = paste("CT:", ctmap_LA_sd$CT10, "<br>",
+"Community:", ctmap_LA_sd$Community_Name, "<br>",
+"Beds:", ctmap_LA_sd$Beds.Available, "<br>",
+"Unsheltered People:", ctmap_LA_sd$Unsheltered.Homeless.People, "<br>",
+"Beds Availability:", ctmap_LA_sd$SOD, "<br>"),
+stroke = TRUE,weight = 0.5,
+color = ~pal2(SOD),
+fillOpacity =0.5) %>%
+addLegend("bottomright",
+pal = pal2,
+values = ~ SOD,
+title = "Shelter Availability",
+opacity =1)
+)
+output$map = renderLeaflet(
+leaflet(ctmap_LA_all_shp,height = "100%",width = "100%")%>%
+addProviderTiles(providers$CartoDB.Positron) %>%
+addPolygons(
+popup = paste("CT:", ctmap_LA_all_shp$CT10, "<br>",
+"Community:", ctmap_LA_all_shp$Community_Name, "<br>",
+"Homelss:", ctmap_LA_all_shp$totPeople, "<br>",
+"Crimes:", ctmap_LA_all_shp$crimenum, "<br>",
+"Calls:",ctmap_LA_all_shp$callnum, "<br>",
+"Shelters:", ctmap_LA_all_shp$shelternum, "<br>"),
+stroke = TRUE,weight = 0.5,
+color = pal(ctmap_LA_all_shp$totPeople),
+fillOpacity = 0.4,
+group = "Heat Map: Homeless People") %>%
+addPolygons(popup = paste("CT:", ctmap_LA_all_shp$CT10, "<br>",
+"Community:", ctmap_LA_all_shp$Community_Name, "<br>",
+"Homelss:", ctmap_LA_all_shp$totPeople, "<br>",
+"Crimes:", ctmap_LA_all_shp$crimenum, "<br>",
+"Calls:",ctmap_LA_all_shp$callnum, "<br>",
+"Shelters:", ctmap_LA_all_shp$shelternum, "<br>"),
+stroke = TRUE,weight = 0.5,
+color = ~pal(ctmap_LA_all_shp$crimenum),
+fillOpacity = 0.4,
+group = "Heat Map: Crimes") %>%
+addPolygons(popup = paste("CT:", ctmap_LA_all_shp$CT10, "<br>",
+"Community:", ctmap_LA_all_shp$Community_Name, "<br>",
+"Homelss:", ctmap_LA_all_shp$totPeople, "<br>",
+"Crimes:", ctmap_LA_all_shp$crimenum, "<br>",
+"Calls:",ctmap_LA_all_shp$callnum, "<br>",
+"Shelters:", ctmap_LA_all_shp$shelternum, "<br>"),
+stroke = TRUE,weight = 0.5,
+highlightOptions = highlightOptions(color = "white", weight = 2, bringToFront = TRUE),
+color = ~pal(ctmap_LA_all_shp$callnum),
+fillOpacity = 0.4,
+group = "Heat Map: Calls") %>%
+addMarkers(data = shelter_LA,
+lng = ~longitude, lat = ~latitude,
+popup = paste(shelter_LA$name, "<br>",
+shelter_LA$url, "<br>",
+shelter_LA$addrln1, "<br>",
+"Hours:", shelter_LA$hours),
+icon = ShelterIcon,
+group = "shelters") %>%
+addLegend("bottomright",
+pal = pal,
+values = ~ ctmap_LA_all_shp$totPeople,
+title = "Number",
+opacity =1) %>%
+addCircleMarkers(data = crime,
+lng = ~longitude, lat = ~latitude,
+popup = crime$ct10,
+radius = 0.5,
+color = c("red"),
+clusterOptions = markerClusterOptions(),
+opacity = 1,
+group = "crimes") %>%
+addCircleMarkers(data = call,
+lng = ~longitude, lat = ~latitude,
+radius = 0.2,
+clusterOptions = markerClusterOptions(),
+group = "calls") %>%
+addLayersControl(
+baseGroups = c("Heat Map: Homeless People", "Heat Map: Crimes", "Heat Map: Calls"),
+overlayGroups = c("shelters", "crimes", "calls"),
+options = layersControlOptions(collapsed = FALSE)) %>%
+hideGroup(c("crimes", "calls"))
+)
+output$crimect=renderUI({
+if(input$cc=="Crime")
+{selectInput("ct","Choose your tract focus", choices=unique(Crimetime$CT10),selected = "ALL")}
+else{selectInput("cct","Choose your tract focus", choices=unique(newcalls$ct10),selected = "ALL")}
+})
+output$crimeplot1=renderPlot(
+crime2 %>%
+filter(CT10 == input$ct) %>%
+ggplot(aes(x = mth_yr)) +
+geom_bar(fill = "indianred",
+alpha = 0.7,
+width = 0.5) +
+scale_y_continuous(expand = c(0,0)) +
+theme(panel.background = element_rect(fill = "white"),
+axis.line = element_line(color = "grey"),
+axis.ticks = element_line(color = "grey"),
+aspect.ratio = 0.5,
+axis.text = element_text(size = 8,
+color = "grey20"),
+axis.title = element_text(size = 11,
+color = "grey20")) +
+labs(x = "Month", y = "Number of Crime",
+title = "Number of Crime by Months")
+)
+output$crimeplot2=renderPlot(
+# day of week; filter by CT
+Crimetime %>%
+filter(CT10 == input$ct) %>%
+ggplot(aes(x = as.factor(Day), y = ..density..,
+group = as.factor(Year),
+color = as.factor(Year))) +
+geom_line(stat = "density") +
+scale_color_discrete(name = "Year") +
+theme(panel.background = element_rect(fill = "transparent",
+color = "lightgrey")) +
+scale_x_discrete(breaks = c(1,2,3,4,5,6,7),
+labels = c("Mon","Tue","Wed",
+"Thur","Fri","Sat","Sun")) +
+labs(x = "Day of Week", y = "Percent of Crime",
+title = "Number of Crime by Day of Week"))
+output$callplot1=renderPlot(
+#### timeline of calls
+# month (filt by tract)
+newcalls %>%
+filter(ct10==input$cct)%>%
+group_by(month)%>%
+summarize(Monthcount=n())%>%
+ggplot(aes(x=month,y= Monthcount)) +
+scale_x_continuous(breaks = c(1,2,3,4,5,6,7,8,9,10,11,12),
+labels = c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"))+
+geom_bar(fill = "#a50026",
+stat = "identity") +
+ylab("Number of Calls")+
+xlab("Month")+
+ggtitle("Timeline of Calls by Month")+
+geom_text(aes(label =Monthcount),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))
+)
+output$callplot2=renderPlot(
+# day of week (filt by ct)
+newcalls %>%
+filter(ct10==input$cct)%>%
+group_by(day.of.week)%>%
+summarize(Dowcount=n())%>%
+ggplot(aes(x =day.of.week, y =Dowcount)) +
+geom_bar(stat = "identity",
+fill="#a50026") +
+scale_x_continuous(breaks = c(1,2,3,4,5,6,7),
+labels = c("Mon","Tue","Wed",
+"Thur","Fri","Sat","Sun"))+
+ylab("Number of Calls")+
+xlab("Day of Week")+
+ggtitle("Timeline of Calls by Day of Week")+
+geom_text(aes(label =Dowcount),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))
+)
+output$usplot=renderPlot(
+if(input$us=="Sheltered people"){
+count_tract1 %>%
+filter(Tract==input$usct)%>%
+filter(If_Shelter=="Shelter")%>%
+filter(Year==input$year)%>%
+group_by(Resident)%>%
+summarize(Count=sum(value))%>%
+ggplot(aes(x=Resident,y=Count,fill=Resident))+
+geom_bar(stat="identity")+
+xlab("Location Type")+
+ylab("Number of People")+
+scale_fill_manual(values=c("#66c2a5","#d96f02","#a6d854"))+
+theme(axis.text = element_text(size=8),
+axis.title = element_text(size=10),
+legend.title=element_text(size=8),
+legend.text=element_text(size=7),
+plot.title = element_text(size=10)) +
+geom_text(aes(label =Count),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))}
+else{
+count_tract1 %>%
+filter(Tract==input$usct)%>%
+filter(If_Shelter=="Unshelter")%>%
+filter(Year==input$year)%>%
+group_by(Resident)%>%
+summarize(Count=sum(value))%>%
+ggplot(aes(x=Resident,y=Count,fill=Resident))+
+geom_bar(stat="identity")+
+xlab("Type")+
+ylab("Number of People")+
+scale_fill_manual(values=c("#e66101","#fdb863","#b8e186","#b2abd2","#5e3c99"))+
+theme(axis.text = element_text(size=8),
+axis.title = element_text(size=10),
+legend.title=element_text(size=8),
+legend.text=element_text(size=7),
+plot.title = element_text(size=10)) +
+geom_text(aes(label =Count),
+vjust = -0.5, size = 3)+
+theme(panel.background = element_rect(fill = "white",color = "lightgrey"))}
+)
+}
+shinyApp(ui, server)
